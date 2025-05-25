@@ -133,6 +133,8 @@ if __name__ == "__main__":
     trg_dataloader = torch.utils.data.DataLoader(trg_dataset, batch_size=args.batch_size, shuffle=False, sampler=None, batch_sampler=None, num_workers=args.num_workers, pin_memory=True, drop_last=False, timeout=0, worker_init_fn=None)
 
     args.num_classes = domain_datasets.num_class
+    logging.info('classes')
+    logging.info(args.num_classes)
 
     # --------------------------------------------------------------------------
     # cnn
@@ -147,11 +149,15 @@ if __name__ == "__main__":
     net.fc = torch.nn.Linear(net.fc.in_features, args.num_classes, bias=False)
 
     net.to(device)
+    
+    if torch.cuda.device_count() > 1:
+        net = torch.nn.DataParallel(net, device_ids=devs)
     # --------------------------------------------------------------------------
     # loss functions
     # classification loss
     ce_loss = nn.CrossEntropyLoss()
     # uncertainty loss
+    enm_loss = losses.EntropyMaximization(t=args.t)
 
     if(args.loss_function=='EntropyMximization'):
         print("t=",args.t)
@@ -275,6 +281,7 @@ if __name__ == "__main__":
 
             imgs_src_adv = imgs_src_adv.to(device)
 
+            torch.cuda.empty_cache()
             with torch.set_grad_enabled(True):
                 preds_src = net(imgs_src)
                 preds_src_adv = net(imgs_src_adv)

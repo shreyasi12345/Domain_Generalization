@@ -39,7 +39,7 @@ if __name__ == "__main__":
         train_trans='train',
         test_trans='test',
         # model
-        network='resnet18',
+        network='resnet50',
         # to heavily remove the learned domain-specific features,
         # set larger lambda2 and smaller lambda3, e.g., lambda2=10, lambda3=0.0001,
         # which would show a better performance on Sketch (as target domain).
@@ -79,12 +79,12 @@ if __name__ == "__main__":
     writer = SummaryWriter(log_dir)
 
     # save dir
-    # if not os.path.isdir(args.savedir):
-    #     os.mkdir(args.savedir)
-    # if args.saver:
-    #     model_dir = os.path.join(args.savedir, args.record_prefix)
-    #     utils.delete_existing(model_dir)
-    #     os.makedirs(model_dir)
+    if not os.path.isdir(args.savedir):
+        os.mkdir(args.savedir)
+    if args.saver:
+        model_dir = os.path.join(args.savedir, args.record_prefix)
+        utils.delete_existing(model_dir)
+        os.makedirs(model_dir)
 
     from models import metrics
     from models import losses
@@ -146,7 +146,7 @@ if __name__ == "__main__":
     mirror_net = unet.UNet(n_channels=3, n_classes=3, bilinear=True)
 
     # saved state for domain-specific classifiers
-    #
+    print(args.resume)
     resumes = [e for e in args.resume.split('#') if e != '']
     for anet, aresume in zip(F_nets, resumes):
         saved_state = torch.load(aresume)
@@ -164,6 +164,11 @@ if __name__ == "__main__":
         named_params = anet.named_parameters()
         for name, param in named_params:
             param.requires_grad = False
+
+    if torch.cuda.device_count() > 1:
+        F_nets = [torch.nn.DataParallel(anet, device_ids=devs) for anet in F_nets]
+        F_cla_net = torch.nn.DataParallel(F_cla_net, device_ids=devs)
+        mirror_net = torch.nn.DataParallel(mirror_net, device_ids=devs)
                               
     # --------------------------------------------------------------------------
     # loss functions
@@ -253,12 +258,10 @@ if __name__ == "__main__":
         logging.info('Evaluation time: {}sec'.format(eval_time.val))
 
         # save model
-        # if (epoch+1) % 100 == 0:
-        #     torch.save({'F_cla_net': F_cla_net.state_dict(),
-        #                 'mirror_net': mirror_net.state_dict()},
-        #                os.path.join(model_dir, '{:05d}.pth'.format(epoch+1)))
-        #     print('model saved.')
-        #     logging.info('model saved.')
+        
+        torch.save({'F_cla_net': F_cla_net.state_dict(),'mirror_net': mirror_net.state_dict()},os.path.join(model_dir, '{:05d}.pth'.format(epoch+1)))
+        print('model saved.')
+        logging.info('model saved.')
 
         # CNN training mode
         F_cla_net.train()
@@ -301,6 +304,7 @@ if __name__ == "__main__":
             imgs_src = [imgs.to(device) for imgs in imgs_src]
             lbls_src = [lbls.to(device) for lbls in lbls_src]
 
+            torch.cuda.empty_cache()
             with torch.set_grad_enabled(True):
                 recs_src = [mirror_net(imgs) for imgs in imgs_src]
                 advs_src = [anet(recs) for anet, recs in zip(F_nets, recs_src)]
